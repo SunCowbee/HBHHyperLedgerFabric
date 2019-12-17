@@ -1,0 +1,14 @@
+{
+  "name": "fishcc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "fishcc.js",
+  "scripts": {
+    "start": "node fishcc.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "fabric-shim": "^1.4.4"
+  }
+}
