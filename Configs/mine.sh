@@ -1,3 +1,32 @@
+####################################################阿里云安装fabric
+#开发环境搭建
+docker
+docker-compose
+git
+nodejs
+
+#安装docker
+curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
+#安装docker-compose
+curl -L https://github.com/docker/compose/releases/download/1.20.1/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+#安装git
+apt-get update
+apt-get install git
+#安装nodejs
+curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+
+#修复阿里云超时bug
+vim /etc/resolv.conf 
+注释掉 options timeout:2 attempts:3 rotate single-request-reopen 
+
+
+#下载二进制脚本和安装docker镜像
+#curl -sSL https://raw.githubusercontent.com/itheima1/BlockChain/master/tools/bootstrap.sh | bash -s 1.1.0
+chmod 777 ./download.sh
+bash ./download.sh -s 1.1.0
 ####################################################阿里云End2End
 #购买阿里云
 固定带宽1M
@@ -419,37 +448,6 @@ http://47.88.50.237:3001/queryAllFish
 http://47.88.50.237:3002/queryAllFish
 
 
-####################################################阿里云安装fabric
-#开发环境搭建
-docker
-docker-compose
-git
-nodejs
-
-#安装docker
-curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
-#安装docker-compose
-curl -L https://github.com/docker/compose/releases/download/1.20.1/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
-#安装git
-apt-get update
-apt-get install git
-#安装nodejs
-curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-
-#修复阿里云超时bug
-vim /etc/resolv.conf 
-注释掉 options timeout:2 attempts:3 rotate single-request-reopen 
-
-
-#下载二进制脚本和安装docker镜像
-#curl -sSL https://raw.githubusercontent.com/itheima1/BlockChain/master/tools/bootstrap.sh | bash -s 1.1.0
-chmod 777 ./download.sh
-bash ./download.sh -s 1.1.0
-
-
 ####################################################本地安装fabric
 # 创建放置的目录，然后进入该目录，用curl下载脚本。
 cd ~ # 这里在家目录下创建放置目录
@@ -476,6 +474,16 @@ curl -sSL https://raw.githubusercontent.com/hyperledger/fabric/master/scripts/bo
 #以上两个压缩包下载下来之后会被解压, 解压目录:
 ~/hyperledger-fabric/fabric-samples
 #可以将事先下载好的两个压缩包放到该目录下, 提高下载速度 (强烈建议), 放好之后再重新执行上边的curl命令
+#启动测试end2end网络
+cd fabric-samples
+cd first-network
+./byfn.sh -m generate
+./byfn.sh -m up
+
+#清除网络
+./byfn.sh -m down
+./stop.sh
+./teardown.sh
 
 #chaincode就是智能合约, 通过编写纯函数的代码,更新ledger的状态.
 https://fabric-shim.github.io/ChaincodeInterface.html
@@ -664,7 +672,304 @@ ip:5984/_utils
 输入用户名+密码
 
 
-#############################################dev模式
+
+#############Demo01_LocalProInitGo
+#生成证书配置文件模板
+cryptogen --help
+cryptogen generate --help
+cryptogen showtemplate > crypto-config.yaml
+#默认配置文件生成证书文件
+cryptogen generate 
+#自定义配置文件生成证书文件
+cryptogen generate --config=crypto-config.yaml
+
+#创始块+通道配置文件模板
+mkdir channel-artifacts
+#生成创世块文件
+configtxgen -profile TestOrgsOrdererGenesis -outputBlock ./channel-artifacts/genesis.block
+
+#生成通道文件
+configtxgen -profile TestOrgsChannel -outputCreateChannelTx ./channel-artifacts/channel.tx -channelID mychannel02
+
+#更新锚节点
+# 每个组织都对应一个锚节点的更新文件
+#go组织锚节点文件
+configtxgen -profile TestOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org01MSPAnchors.tx -channelID mychannel02 -asOrg Org01MSP
+
+#testwork与文件夹同名
+CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=demo01_byfn
+
+#创建base文件夹存放peer-base.yaml+docker-compose-base.yaml
+mkdir base
+mv docker-compose-base.yaml peer-base.yaml ./base
+
+#docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml up -d
+docker-compose up -d
+#查看docker-compose启动容器情况
+docker-compose -f docker-compose-cli.yaml ps
+docker-compose ps
+#关闭docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml down -v
+docker-compose down -v
+#删除所有容器
+docker rm -f $(docker ps -aq)
+docker rm $(docker ps -a -q)
+
+#进入cli容器
+docker exec -it cli bash
+
+#客户端cli
+#创建通道
+peer channel create -o orderer.test.com:7050 -c mychannel02 -f ./channel-artifacts/channel.tx --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem
+
+#客户端cli操作peer节点
+#加入通道
+peer channel join -b mychannel02.block
+peer channel list
+
+#安装链码
+#-p	从$GOPATH/src 路径后开始写
+peer chaincode install -n mychaincode02 -v 1.0 -l golang -p github.com/chaincode
+
+#链码初始化
+peer chaincode instantiate -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/msp/tlscacerts/tlsca.test.com-cert.pem  -C mychannel02 -n mychaincode02 -l golang -v 1.0 -c '{"Args":["init","a","100","b","200"]}' -P "AND ('Org01MSP.member')"
+
+#查询链码
+peer chaincode query -C mychannel02 -n mychaincode02 -c '{"Args":["query","a"]}'
+peer chaincode query -C mychannel02 -n mychaincode02 -c '{"Args":["query","b"]}'
+
+#调用链码
+#peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
+peer chaincode invoke -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem -C mychannel02 -n mychaincode02 --peerAddresses peer0.org01.test.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org01.test.com/tlsca/tlsca.org01.test.com-cert.pem -c '{"Args":["invoke","a","b","10"]}'
+
+#############Demo02_LocalProInitGoCa
+#生成证书配置文件模板
+cryptogen --help
+cryptogen generate --help
+cryptogen showtemplate > crypto-config.yaml
+#默认配置文件生成证书文件
+cryptogen generate 
+#自定义配置文件生成证书文件
+cryptogen generate --config=crypto-config.yaml
+
+#创始块+通道配置文件模板
+mkdir channel-artifacts
+#生成创世块文件
+configtxgen -profile TestOrgsOrdererGenesis -outputBlock ./channel-artifacts/genesis.block
+
+#生成通道文件
+configtxgen -profile TestOrgsChannel -outputCreateChannelTx ./channel-artifacts/channel.tx -channelID mychannel03
+
+#更新锚节点
+# 每个组织都对应一个锚节点的更新文件
+#go组织锚节点文件
+configtxgen -profile TestOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org01MSPAnchors.tx -channelID mychannel03 -asOrg Org01MSP
+
+#testwork与文件夹同名
+CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=demo02_byfn
+
+#创建base文件夹存放peer-base.yaml+docker-compose-base.yaml
+mkdir base
+mv docker-compose-base.yaml peer-base.yaml ./base
+
+#docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml up -d
+docker-compose up -d
+#查看docker-compose启动容器情况
+docker-compose -f docker-compose-cli.yaml ps
+docker-compose ps
+#关闭docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml down -v
+docker-compose down -v
+#删除所有容器
+docker rm -f $(docker ps -aq)
+docker rm $(docker ps -a -q)
+
+#进入cli容器
+docker exec -it cli bash
+
+#客户端cli
+#创建通道
+peer channel create -o orderer.test.com:7050 -c mychannel03 -f ./channel-artifacts/channel.tx --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem
+
+#客户端cli操作peer节点
+#加入通道
+peer channel join -b mychannel03.block
+peer channel list
+
+#安装链码
+#-p	从$GOPATH/src 路径后开始写
+peer chaincode install -n mychaincode03 -v 1.0 -l golang -p github.com/chaincode
+
+#链码初始化
+peer chaincode instantiate -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/msp/tlscacerts/tlsca.test.com-cert.pem  -C mychannel03 -n mychaincode03 -l golang -v 1.0 -c '{"Args":["init","a","100","b","200"]}' -P "AND ('Org01MSP.member')"
+
+#查询链码
+peer chaincode query -C mychannel03 -n mychaincode03 -c '{"Args":["query","a"]}'
+peer chaincode query -C mychannel03 -n mychaincode03 -c '{"Args":["query","b"]}'
+
+#调用链码
+#peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
+peer chaincode invoke -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem -C mychannel03 -n mychaincode03 --peerAddresses peer0.org01.test.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org01.test.com/tlsca/tlsca.org01.test.com-cert.pem -c '{"Args":["invoke","a","b","10"]}'
+
+#############Demo03_LocalProInitGoCaCouch
+#生成证书配置文件模板
+cryptogen --help
+cryptogen generate --help
+cryptogen showtemplate > crypto-config.yaml
+#默认配置文件生成证书文件
+cryptogen generate 
+#自定义配置文件生成证书文件
+cryptogen generate --config=crypto-config.yaml
+
+#创始块+通道配置文件模板
+mkdir channel-artifacts
+#生成创世块文件
+configtxgen -profile TestOrgsOrdererGenesis -outputBlock ./channel-artifacts/genesis.block
+
+#生成通道文件
+configtxgen -profile TestOrgsChannel -outputCreateChannelTx ./channel-artifacts/channel.tx -channelID mychannel06
+
+#更新锚节点
+# 每个组织都对应一个锚节点的更新文件
+#go组织锚节点文件
+configtxgen -profile TestOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org01MSPAnchors.tx -channelID mychannel06 -asOrg Org01MSP
+
+#testwork与文件夹同名
+CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=demo03_byfn
+
+#创建base文件夹存放peer-base.yaml+docker-compose-base.yaml
+mkdir base
+mv docker-compose-base.yaml peer-base.yaml ./base
+
+#docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml up -d
+docker-compose up -d
+#查看docker-compose启动容器情况
+docker-compose -f docker-compose-cli.yaml ps
+docker-compose ps
+#关闭docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml down -v
+docker-compose down -v
+#删除所有容器
+docker rm -f $(docker ps -aq)
+docker rm $(docker ps -a -q)
+
+#进入cli容器
+docker exec -it cli bash
+
+#客户端cli
+#创建通道
+peer channel create -o orderer.test.com:7050 -c mychannel06 -f ./channel-artifacts/channel.tx --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem
+
+#客户端cli操作peer节点
+#加入通道
+peer channel join -b mychannel06.block
+peer channel list
+
+#安装链码
+#-p	从$GOPATH/src 路径后开始写
+peer chaincode install -n mychaincode06 -v 1.0 -l golang -p github.com/chaincode
+
+#链码初始化
+peer chaincode instantiate -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/msp/tlscacerts/tlsca.test.com-cert.pem  -C mychannel06 -n mychaincode06 -l golang -v 1.0 -c '{"Args":["init","a","100","b","200"]}' -P "AND ('Org01MSP.member')"
+
+#查询链码
+peer chaincode query -C mychannel06 -n mychaincode06 -c '{"Args":["query","a"]}'
+peer chaincode query -C mychannel06 -n mychaincode06 -c '{"Args":["query","b"]}'
+
+#调用链码
+#peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
+peer chaincode invoke -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem -C mychannel06 -n mychaincode06 --peerAddresses peer0.org01.test.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org01.test.com/tlsca/tlsca.org01.test.com-cert.pem -c '{"Args":["invoke","a","b","10"]}'
+
+#查看couchdb的web界面
+ip:5984/_utils
+设置用户名+密码
+输入用户名+密码
+
+#############Demo04_LocalProInitNodeCaCouch
+#生成证书配置文件模板
+cryptogen --help
+cryptogen generate --help
+cryptogen showtemplate > crypto-config.yaml
+#默认配置文件生成证书文件
+cryptogen generate 
+#自定义配置文件生成证书文件
+cryptogen generate --config=crypto-config.yaml
+
+#创始块+通道配置文件模板
+mkdir channel-artifacts
+#生成创世块文件
+configtxgen -profile TestOrgsOrdererGenesis -outputBlock ./channel-artifacts/genesis.block
+
+#生成通道文件
+configtxgen -profile TestOrgsChannel -outputCreateChannelTx ./channel-artifacts/channel.tx -channelID myc
+
+#更新锚节点
+# 每个组织都对应一个锚节点的更新文件
+#go组织锚节点文件
+configtxgen -profile TestOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org01MSPAnchors.tx -channelID myc -asOrg Org01MSP
+
+#testwork与文件夹同名
+CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=demo05-01_byfn
+
+#创建base文件夹存放peer-base.yaml+docker-compose-base.yaml
+mkdir base
+mv docker-compose-base.yaml peer-base.yaml ./base
+
+#docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml up -d
+docker-compose up -d
+docker-compose up 
+#查看docker-compose启动容器情况
+docker-compose -f docker-compose-cli.yaml ps
+docker-compose ps
+#关闭docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml down -v
+docker-compose down -v
+docker-compose down 
+#删除所有容器
+docker rm -f $(docker ps -aq)
+docker rm $(docker ps -a -q)
+docker kill $(docker ps -q)
+#删除dev容器镜像
+docker rmi $(docker images dev-* -q)
+#删除所有docker网络缓存
+docker network prune
+docker network ls
+
+#进入cli容器
+docker exec -it cli bash
+
+#客户端cli
+#创建通道
+peer channel create -o orderer.test.com:7050 -c myc -f ./channel-artifacts/channel.tx --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem
+
+#客户端cli操作peer节点
+#加入通道
+peer channel join -b myc.block
+peer channel list
+
+#安装链码
+#-p	从$GOPATH/src 路径后开始写
+peer chaincode install -n mycc -v 1.0 -l node -p /opt/gopath/src/github.com/chaincode
+
+#链码初始化
+peer chaincode instantiate -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/msp/tlscacerts/tlsca.test.com-cert.pem  -C myc -n mycc -l node -v 1.0 -c '{"Args":["init","a","100","b","200"]}' -P "AND ('Org01MSP.member')"
+
+#查询链码
+peer chaincode query -C myc -n mycc -c '{"Args":["query","a"]}'
+peer chaincode query -C myc -n mycc -c '{"Args":["query","b"]}'
+
+#调用链码
+#peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
+peer chaincode invoke -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem -C myc -n mycc --peerAddresses peer0.org01.test.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org01.test.com/tlsca/tlsca.org01.test.com-cert.pem -c '{"Args":["invoke","a","b","10"]}'
+
+#查看couchdb的web界面
+ip:5984/_utils
+设置用户名+密码
+输入用户名+密码
 
 #############Demo05_LocalDevInitGoDemo
 #拷贝chaincode-docker-devmode
@@ -712,7 +1017,6 @@ peer chaincode query -C myc -n mycc -c '{"Args":["query","b"]}'
 #调用链码
 #peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
 peer chaincode invoke -C myc -n mycc -c '{"Args":["invoke","a","b","10"]}'
-
 
 #参考博客
 https://blog.csdn.net/zhayujie5200/article/details/84561825
@@ -826,6 +1130,7 @@ ip:5984/_utils
 设置用户名+密码
 输入用户名+密码
 
+
 ######################################Demo07_LocalDevInitNodeCaCouch
 #docker-compose启动容器
 docker-compose -f docker-compose-cli.yaml up -d
@@ -909,6 +1214,138 @@ peer chaincode query -C myc -n mycc -c '{"Args":["query","b"]}'
 #调用链码
 #peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
 peer chaincode invoke -C myc -n mycc -c '{"Args":["invoke","a","b","10"]}'
+
+#参考博客
+https://blog.csdn.net/zhayujie5200/article/details/84561825
+https://blog.csdn.net/neosmith/article/details/80020740
+
+######################################原始链码安装
+#安装链码
+#-p	从$GOPATH/src 路径后开始写
+peer chaincode install -n mycc -v 1.0 -l golang -p github.com/chaincode
+
+#链码初始化
+peer chaincode instantiate -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/msp/tlscacerts/tlsca.test.com-cert.pem  -C myc -n mycc -l golang -v 1.0 -c '{"Args":["init","a","100","b","200"]}' -P "AND ('Org01MSP.member')"
+peer chaincode instantiate -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/msp/tlscacerts/tlsca.test.com-cert.pem  -C myc -n mycc -l node -v 1.0 -c '{"Args":["init","a","100","b","200"]}' -P "AND ('Org01MSP.member')"
+
+#查询链码
+peer chaincode query -C myc -n mycc -c '{"Args":["query","a"]}'
+peer chaincode query -C myc -n mycc -c '{"Args":["query","b"]}'
+
+#调用链码
+#peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
+peer chaincode invoke -o orderer.test.com:7050 --tls true --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/test.com/tlsca/tlsca.test.com-cert.pem -C myc -n mycc --peerAddresses peer0.org01.test.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org01.test.com/tlsca/tlsca.org01.test.com-cert.pem -c '{"Args":["invoke","a","b","10"]}'
+
+#查看couchdb的web界面
+ip:5984/_utils
+设置用户名+密码
+输入用户名+密码
+
+######################################Demo08_LocalDevCodeNodeCaCouchNodeSDK
+#安装fabric-ca-client和fabric-client
+npm init
+npm install --save fabric-ca-client 
+npm install --save fabric-client 
+npm install --save grpc
+npm install --save express 
+npm cache clean --force
+
+#docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml up -d
+docker-compose up -d
+docker-compose up 
+#查看docker-compose启动容器情况
+docker-compose -f docker-compose-cli.yaml ps
+docker-compose ps
+#关闭docker-compose启动容器
+docker-compose -f docker-compose-cli.yaml down -v
+docker-compose down -v
+docker-compose down 
+#先暂停所有容器，再移除所有容器
+docker stop hash
+docker stop $(docker ps -aq)
+#删除所有容器
+docker rm -f $(docker ps -aq)
+docker rm $(docker ps -a -q)
+docker kill $(docker ps -q)
+#删除dev容器镜像
+docker rmi $(docker images dev-* -q)
+#删除所有docker网络缓存
+docker network prune
+docker network ls
+
+#生成证书配置文件模板
+cryptogen --help
+cryptogen generate --help
+cryptogen showtemplate > crypto-config.yaml
+#默认配置文件生成证书文件
+cryptogen generate 
+#自定义配置文件生成证书文件
+cryptogen generate --config=crypto-config.yaml
+
+#创始块+通道配置文件模板
+mkdir channel-artifacts
+#生成创世块文件
+configtxgen -profile TestOrgsOrdererGenesis -outputBlock ./channel-artifacts/genesis.block
+
+#生成通道文件
+configtxgen -profile TestOrgsChannel -outputCreateChannelTx ./channel-artifacts/channel.tx -channelID myc
+
+#创建chaincode目录+安装chaincode依赖
+mkdir chaincode
+cd chaincode
+mkdir mycc
+cd mycc
+npm init
+npm install --save fabric-shim
+
+#更新锚节点
+# 每个组织都对应一个锚节点的更新文件
+#go组织锚节点文件
+configtxgen -profile TestOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org01MSPAnchors.tx -channelID myc -asOrg Org01MSP
+
+#进入cli容器
+docker exec -it cli bash
+#创建通道
+peer channel create -o orderer.test.com:7050 -c myc -f ./channel.tx
+#加入通道
+peer channel join -b myc.block
+peer channel list
+
+#进入chaincode容器
+docker exec -it chaincode bash
+cd mycc
+go build -o mycc01
+CORE_PEER_ADDRESS=peer0.org01.test.com:7052 CORE_CHAINCODE_ID_NAME=mycc:1.0 ./mycc
+CORE_PEER_ADDRESS=peer0.org01.test.com:7052 CORE_CHAINCODE_ID_NAME=mycc:1.0 go run chaincode_example02.go
+
+CORE_CHAINCODE_ID_NAME="mycc:1.0"  npm start -- --peer.address grpc://172.17.0.1:7052
+
+#进入cli容器
+docker exec -it cli bash
+#安装链码
+peer chaincode install -p /opt/gopath/src/chaincodedev/chaincode/mycc -n mycc -v 1.0 -l node
+#初始化链码
+peer chaincode instantiate -n mycc -l node -v 1.0 -C myc -c '{"Args":["init","a","100","b","200"]}' -P "AND ('Org01MSP.member')"
+peer chaincode instantiate -n mycc -l node -v 1.0 -C myc -c '{"Args":[""]}' -P "AND ('Org01MSP.member')"
+peer chaincode invoke -C myc -n mycc -c '{"function":"initLedger","Args":[""]}'
+
+#查询链码
+peer chaincode query -C myc -n mycc -c '{"Args":["query","a"]}'
+peer chaincode query -C myc -n mycc -c '{"Args":["query","b"]}'
+peer chaincode query -C myc -n mycc -c '{"function":"queryFish","Args":["FISH1"]}'
+peer chaincode query -C myc -n mycc -c '{"function":"queryAllFish","Args":[""]}'
+
+#调用链码
+#peer chaincode invoke -o orderer节点地址:端口 --tls true --cafile orderer节点pem格式的证书文件 -C 通道名称 -n 链码名称 --peerAddresses 背书节点1:端口 --tlsRootCertFiles 背书节点1的TLS根证书    --peerAddresses 背书节点2:端口 --tlsRootCertFiles 背书节点2的TLS根证书 -c 交易链码调用
+peer chaincode invoke -C myc -n mycc -c '{"Args":["invoke","a","b","10"]}'
+
+
+#webapp
+node enrollAdmin.js
+node enrollUser.js
+node query.js queryFish "FISH1"
+node query.js queryAllFish ""  
 
 #参考博客
 https://blog.csdn.net/zhayujie5200/article/details/84561825
