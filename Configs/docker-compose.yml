@@ -6,7 +6,7 @@
 version: '2'
 
 #/var/lib/docker/volumes
-#本地与远程服务器主机形成映射
+#本地与远程服务器（docker容器）主机形成映射
 volumes:
   orderer.test.com:
   peer0.orggo.test.com:

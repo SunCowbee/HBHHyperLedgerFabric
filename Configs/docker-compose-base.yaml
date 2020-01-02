@@ -30,7 +30,9 @@ services:
     - ../crypto-config/ordererOrganizations/test.com/orderers/orderer.test.com/msp:/var/hyperledger/orderer/msp
     - ../crypto-config/ordererOrganizations/test.com/orderers/orderer.test.com/tls/:/var/hyperledger/orderer/tls
     - orderer.test.com:/var/hyperledger/production/orderer
+    #本地目录/var/lib/docker/volumes/orderer.test.com:docker目录/var/hyperledger/production/orderer
     ports:
+    #本地端口7050:docker端口7050
       - 7050:7050
 
   peer0.orggo.test.com:
